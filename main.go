@@ -10,6 +10,7 @@ import (
 	nats "github.com/nats-io/go-nats"
 	"github.com/songgao/water"
 	"github.com/songgao/water/waterutil"
+	"github.com/vishvananda/netlink"
 )
 
 var (
@@ -52,6 +53,26 @@ func main() {
 	}
 	if len(ownEth) == 0 {
 		log.Fatal("failed to get own ethernet address")
+	}
+
+	tap, err := netlink.LinkByName(config.Name)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	addr, err := netlink.ParseAddr(fmt.Sprintf("10.1.0.%d/16", 12))
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// set IP address for TAP interface
+	if err = netlink.AddrAdd(tap, addr); err != nil {
+		log.Fatal(err)
+	}
+
+	// enables TAP interface
+	if err = netlink.LinkSetUp(tap); err != nil {
+		log.Fatal(err)
 	}
 
 	// sub to our frame address
