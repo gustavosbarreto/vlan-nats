@@ -8,6 +8,7 @@ import (
 	"time"
 
 	nats "github.com/nats-io/go-nats"
+	"github.com/songgao/packets/ethernet"
 	"github.com/songgao/water"
 	"github.com/songgao/water/waterutil"
 	"github.com/vishvananda/netlink"
@@ -100,26 +101,29 @@ func main() {
 	defer bsub.Unsubscribe()
 
 	// read each frame and publish it to appropriate topic
-	var frame [1500]byte
+	var frame ethernet.Frame
 	for {
+		frame.Resize(1500)
+
 		// read frame from interface
-		n, err := ifce.Read(frame[:])
+		n, err := ifce.Read(frame)
 		if err != nil {
 			log.Fatal(err)
 		}
-		frame2 := frame[:n]
+		frame := frame[:n]
 
 		// the topic to publish to
-		dst := waterutil.MACDestination(frame2)
+		dst := waterutil.MACDestination(frame)
 		var pubTopic string
 		if waterutil.IsBroadcast(dst) {
 			pubTopic = broadcastTopic
+
 		} else {
 			pubTopic = fmt.Sprintf("vlan.%d.%x", *vlanID, dst)
 		}
 
 		// publish
-		if err := nc.Publish(pubTopic, frame2); err != nil {
+		if err := nc.Publish(pubTopic, frame); err != nil {
 			log.Fatal(err)
 		}
 	}
