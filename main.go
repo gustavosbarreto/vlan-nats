@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"log"
 	"net"
-	"time"
 
+	MQTT "github.com/eclipse/paho.mqtt.golang"
 	nats "github.com/nats-io/go-nats"
 	"github.com/songgao/packets/ethernet"
 	"github.com/songgao/water"
@@ -23,12 +23,18 @@ func main() {
 	// parse command-line args
 	flag.Parse()
 
-	// connect to nats
-	nc, err := nats.Connect(*natsURL, nats.Timeout(5*time.Second))
-	if err != nil {
-		log.Fatal(err)
+	opts := MQTT.NewClientOptions()
+	opts.AddBroker(*natsURL)
+
+	mc := MQTT.NewClient(opts)
+	// connect to mqtt
+	token := mc.Connect()
+	token.Wait()
+
+	if token.Error() != nil {
+		log.Fatal(token.Error())
 	}
-	defer nc.Close()
+	//	defer token.Close()
 
 	// create a TAP interface
 	config := water.Config{
@@ -61,7 +67,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	addr, err := netlink.ParseAddr(fmt.Sprintf("10.1.0.%d/16", 12))
+	addr, err := netlink.ParseAddr(fmt.Sprintf("10.1.0.%d/16", 11))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -78,27 +84,31 @@ func main() {
 
 	// sub to our frame address
 	subTopic := fmt.Sprintf("vlan.%d.%x", *vlanID, ownEth)
-	sub, err := nc.Subscribe(subTopic, func(m *nats.Msg) {
-		if _, err := ifce.Write(m.Data); err != nil {
+	sub := mc.Subscribe(subTopic, 0, func(c MQTT.Client, m MQTT.Message) {
+		if _, err := ifce.Write(m.Payload()); err != nil {
 			log.Print(err)
 		}
 	})
-	if err != nil {
-		log.Fatal(err)
+
+	sub.Wait()
+	if sub.Error() != nil {
+		log.Fatal(sub.Error())
 	}
-	defer sub.Unsubscribe()
+	//	defer sub.Unsubscribe()
 
 	// sub to broadcasts
 	broadcastTopic := fmt.Sprintf("vlan.%d", *vlanID)
-	bsub, err := nc.Subscribe(broadcastTopic, func(m *nats.Msg) {
-		if _, err := ifce.Write(m.Data); err != nil {
+	bsub := mc.Subscribe(broadcastTopic, 0, func(c MQTT.Client, m MQTT.Message) {
+		if _, err := ifce.Write(m.Payload()); err != nil {
 			log.Print(err)
 		}
 	})
-	if err != nil {
-		log.Fatal(err)
+
+	bsub.Wait()
+	if bsub.Error() != nil {
+		log.Fatal(bsub.Error())
 	}
-	defer bsub.Unsubscribe()
+	//	defer bsub.Unsubscribe()
 
 	// read each frame and publish it to appropriate topic
 	var frame ethernet.Frame
@@ -123,8 +133,10 @@ func main() {
 		}
 
 		// publish
-		if err := nc.Publish(pubTopic, frame); err != nil {
-			log.Fatal(err)
+		token := mc.Publish(pubTopic, 0, false, []byte(frame))
+		token.Wait()
+		if token.Error() != nil {
+			log.Fatal(token.Error())
 		}
 	}
 }
